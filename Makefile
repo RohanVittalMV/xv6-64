@@ -204,6 +204,9 @@ xv6.pdf: $(PRINT)
 
 print: xv6.pdf
 
+clean_print:
+	rm -rf fmt xv6.pdf
+
 # run in emulators
 
 bochs : fs.img xv6.img
