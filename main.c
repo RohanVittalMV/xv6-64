@@ -57,8 +57,6 @@ mpmain(void)
   scheduler();     // start running processes
 }
 
-pde_t entrypgdir[];  // For entry.S
-
 // Start the non-boot (AP) processors.
 static void
 startothers(void)
@@ -84,7 +82,7 @@ startothers(void)
     stack = kalloc();
     *(void**)(code-4) = stack + KSTACKSIZE;
     *(void(**)(void))(code-8) = mpenter;
-    *(int**)(code-12) = (void *) V2P(entrypgdir);
+//    *(int**)(code-12) = (void *) V2P(entrypgdir);
 
     lapicstartap(c->apicid, V2P(code));
 
@@ -97,15 +95,22 @@ startothers(void)
 // The boot page table used in entry.S and entryother.S.
 // Page directories (and page tables) must start on page boundaries,
 // hence the __aligned__ attribute.
-// PTE_PS in a page directory entry enables 4Mbyte pages.
+// PTE_PS in a page directory entry enables 1Gbyte pages.
+__attribute__((__aligned__(PGSIZE)))
+pdpte_t identitymap[NPDPTENTRIES] = {
+        // Map VA's [0, 1GB) to PA's [0, 1GB)
+        [0] = (0) | PTE_P | PTE_W | PTE_PS,
+};
 
 __attribute__((__aligned__(PGSIZE)))
-pde_t entrypgdir[NPDENTRIES] = {
-  // Map VA's [0, 4MB) to PA's [0, 4MB)
-  [0] = (0) | PTE_P | PTE_W | PTE_PS,
-  // Map VA's [KERNBASE, KERNBASE+4MB) to PA's [0, 4MB)
-  [KERNBASE>>PDXSHIFT] = (0) | PTE_P | PTE_W | PTE_PS,
+pdpte_t kernmap[NPDPTENTRIES] = {
+        // Map VA's [KERNBASE, KERNBASE+1GB) to PA's [0, 1GB)
+        [PDPTX(KERNBASE)] = (0) | PTE_P | PTE_W | PTE_PS,
 };
+
+// Will be initialized in entry.S
+__attribute__((__aligned__(PGSIZE)))
+pml4e_t entrypml4[NPML4ENTRIES] = {0};
 
 //PAGEBREAK!
 // Blank page.
