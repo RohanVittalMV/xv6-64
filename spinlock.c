@@ -3,7 +3,7 @@
 #include "types.h"
 #include "defs.h"
 #include "param.h"
-#include "x86.h"
+#include "x86-64.h"
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
@@ -69,17 +69,17 @@ release(struct spinlock *lk)
 
 // Record the current call stack in pcs[] by following the %ebp chain.
 void
-getcallerpcs(void *v, uint pcs[])
+getcallerpcs(void *v, uint64 pcs[])
 {
-  uint *ebp;
+  uint64 *rbp;
   int i;
 
-  ebp = (uint*)v - 2;
+  rbp = (uint64*)v - 2;
   for(i = 0; i < 10; i++){
-    if(ebp == 0 || ebp < (uint*)KERNBASE || ebp == (uint*)0xffffffff)
+    if(rbp == 0 || rbp < (uint64*)KERNBASE || rbp == (uint64*)0xffffffffffffffff)
       break;
-    pcs[i] = ebp[1];     // saved %eip
-    ebp = (uint*)ebp[0]; // saved %ebp
+    pcs[i] = rbp[1];       // saved %rip
+    rbp = (uint64*)rbp[0]; // saved %rbp
   }
   for(; i < 10; i++)
     pcs[i] = 0;
@@ -104,19 +104,19 @@ holding(struct spinlock *lock)
 void
 pushcli(void)
 {
-  int eflags;
+  int64 rflags;
 
-  eflags = readeflags();
+  eflags = readrflags();
   cli();
   if(mycpu()->ncli == 0)
-    mycpu()->intena = eflags & FL_IF;
+    mycpu()->intena = rflags & FL_IF;
   mycpu()->ncli += 1;
 }
 
 void
 popcli(void)
 {
-  if(readeflags()&FL_IF)
+  if(readrflags()&FL_IF)
     panic("popcli - interruptible");
   if(--mycpu()->ncli < 0)
     panic("popcli");
