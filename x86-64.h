@@ -45,3 +45,11 @@ lcr3(uint64 val)
 {
   asm volatile("movq %0,%%cr3" : : "r" (val));
 }
+
+static inline uint64
+readrflags(void)
+{
+    uint64 rflags;
+    asm volatile("pushfq; popq %0" : "=r" (rflags));
+    return rflags;
+}

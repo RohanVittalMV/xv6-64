@@ -63,14 +63,6 @@ ltr(ushort sel)
     asm volatile("ltr %0" : : "r" (sel));
 }
 
-static inline uint
-readeflags(void)
-{
-    uint eflags;
-    asm volatile("pushfl; popl %0" : "=r" (eflags));
-    return eflags;
-}
-
 static inline void
 loadgs(ushort v)
 {
