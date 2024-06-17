@@ -1,13 +1,13 @@
 // Multiprocessor support
 // Search memory for MP description structures.
-// http://developer.intel.com/design/pentium/datashts/24201606.pdf
+// https://pdos.csail.mit.edu/6.828/2014/readings/ia32/MPspec.pdf
 
 #include "types.h"
 #include "defs.h"
 #include "param.h"
 #include "memlayout.h"
 #include "mp.h"
-#include "x86.h"
+#include "x86-64.h"
 #include "mmu.h"
 #include "proc.h"
 
@@ -28,7 +28,7 @@ sum(uchar *addr, int len)
 
 // Look for an MP structure in the len bytes at addr.
 static struct mp*
-mpsearch1(uint a, int len)
+mpsearch1(uint64 a, int len)
 {
   uchar *e, *p, *addr;
 
@@ -49,7 +49,7 @@ static struct mp*
 mpsearch(void)
 {
   uchar *bda;
-  uint p;
+  uint64 p;
   struct mp *mp;
 
   bda = (uchar *) P2V(0x400);
@@ -77,7 +77,7 @@ mpconfig(struct mp **pmp)
 
   if((mp = mpsearch()) == 0 || mp->physaddr == 0)
     return 0;
-  conf = (struct mpconf*) P2V((uint) mp->physaddr);
+  conf = (struct mpconf*) P2V((uint64) mp->physaddr);
   if(memcmp(conf, "PCMP", 4) != 0)
     return 0;
   if(conf->version != 1 && conf->version != 4)
@@ -101,7 +101,7 @@ mpinit(void)
   if((conf = mpconfig(&mp)) == 0)
     panic("Expect to run on an SMP");
   ismp = 1;
-  lapic = (uint*)conf->lapicaddr;
+  lapic = (uint*)DEV_P2V((uint64)conf->lapicaddr);
   for(p=(uchar*)(conf+1), e=(uchar*)conf+conf->length; p<e; ){
     switch(*p){
     case MPPROC:
