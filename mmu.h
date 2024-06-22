@@ -28,6 +28,7 @@
 
 #ifndef __ASSEMBLER__
 // Segment Descriptor
+// In IA_32e mode, only type, s, dpl, p, and l are effective
 struct segdesc {
     uint lim_15_0 : 16;  // Low bits of segment limit
     uint base_15_0 : 16; // Low bits of segment base address
@@ -38,21 +39,17 @@ struct segdesc {
     uint p : 1;          // Present
     uint lim_19_16 : 4;  // High bits of segment limit
     uint avl : 1;        // Unused (available for software use)
-    uint rsv1 : 1;       // Reserved
-    uint db : 1;         // 0 = 16-bit segment, 1 = 32-bit segment
+    uint l : 1;          // 64-bit code segment
+    uint db : 1;         // 0 = 16-bit segment, 1 = 32-bit segment, 0 in IA-32e mode
     uint g : 1;          // Granularity: limit scaled by 4K when set
     uint base_31_24 : 8; // High bits of segment base address
 };
 
 // Normal segment
-#define SEG(type, base, lim, dpl) (struct segdesc)    \
-{ ((lim) >> 12) & 0xffff, (uint)(base) & 0xffff,      \
-  ((uint)(base) >> 16) & 0xff, type, 1, dpl, 1,       \
-  (uint)(lim) >> 28, 0, 0, 1, 1, (uint)(base) >> 24 }
-#define SEG16(type, base, lim, dpl) (struct segdesc)  \
-{ (lim) & 0xffff, (uint)(base) & 0xffff,              \
-  ((uint)(base) >> 16) & 0xff, type, 1, dpl, 1,       \
-  (uint)(lim) >> 16, 0, 0, 1, 0, (uint)(base) >> 24 }
+#define SEG64(type, base, lim, dpl, code) (struct segdesc)    \
+{ ((lim) >> 12) & 0xffff, (uint)(base) & 0xffff,              \
+  ((uint)(base) >> 16) & 0xff, type, 1, dpl, 1,               \
+  (uint)(lim) >> 28, 0, code, 0, 1, (uint)(base) >> 24 }
 #endif
 
 #define DPL_USER    0x3     // User DPL
@@ -63,9 +60,9 @@ struct segdesc {
 #define STA_R       0x2     // Readable (executable segments)
 
 // System segment type bits
-#define STS_T32A    0x9     // Available 32-bit TSS
-#define STS_IG32    0xE     // 32-bit Interrupt Gate
-#define STS_TG32    0xF     // 32-bit Trap Gate
+#define STS_T64A    0x9     // Available 64-bit TSS
+#define STS_IG64    0xE     // 64-bit Interrupt Gate
+#define STS_TG64    0xF     // 64-bit Trap Gate
 
 // A virtual address 'la' has a six-part structure as follows:
 //
@@ -171,13 +168,16 @@ struct taskstate {
 struct gatedesc {
     uint off_15_0 : 16;   // low 16 bits of offset in segment
     uint cs : 16;         // code segment selector
-    uint args : 5;        // # args, 0 for interrupt/trap gates
+    uint ist : 3;         // interrupt stack table
+    uint args : 2;        // # args, 0 for interrupt/trap gates
     uint rsv1 : 3;        // reserved(should be zero I guess)
     uint type : 4;        // type(STS_{IG32,TG32})
     uint s : 1;           // must be 0 (system)
     uint dpl : 2;         // descriptor(meaning new) privilege level
     uint p : 1;           // Present
-    uint off_31_16 : 16;  // high bits of offset in segment
+    uint off_31_16 : 16;  // bits 16-31 of offset in segment
+    uint off_63_32;       // high bits of offset in segment
+    uint rsv2;            // reserved(should be zero I guess)
 };
 
 // Set up a normal interrupt/trap gate descriptor.
@@ -190,15 +190,17 @@ struct gatedesc {
 //        this interrupt/trap gate explicitly using an int instruction.
 #define SETGATE(gate, istrap, sel, off, d)                \
 {                                                         \
-  (gate).off_15_0 = (uint)(off) & 0xffff;                \
+  (gate).off_15_0 = (uint)((off) & 0xffff);               \
   (gate).cs = (sel);                                      \
   (gate).args = 0;                                        \
   (gate).rsv1 = 0;                                        \
-  (gate).type = (istrap) ? STS_TG32 : STS_IG32;           \
+  (gate).type = (istrap) ? STS_TG64 : STS_IG64;           \
   (gate).s = 0;                                           \
   (gate).dpl = (d);                                       \
   (gate).p = 1;                                           \
-  (gate).off_31_16 = (uint)(off) >> 16;                  \
+  (gate).off_31_16 = (uint)(((off) >> 16) & 0xffff);      \
+  (gate).off_63_31 = (uint)((off) >> 32);                 \
+  (gate).rsv2 = 0;                                        \
 }
 
 #endif
