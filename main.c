@@ -70,7 +70,7 @@ startothers(void)
   // The linker has placed the image of entryother.S in
   // _binary_entryother_start.
   code = P2V(0x7000);
-  memmove(code, _binary_entryother_start, (uint)_binary_entryother_size);
+  memmove(code, _binary_entryother_start, (uint64)_binary_entryother_size);
 
   for(c = cpus; c < cpus+ncpu; c++){
     if(c == mycpu())  // We've started already.
@@ -78,11 +78,11 @@ startothers(void)
 
     // Tell entryother.S what stack to use, where to enter, and what
     // pgdir to use. We cannot use kpgdir yet, because the AP processor
-    // is running in low  memory, so we use entrypgdir for the APs too.
+    // is running in low  memory, so we use entrypml4 for the APs too.
     stack = kalloc();
-    *(void**)(code-4) = stack + KSTACKSIZE;
-    *(void(**)(void))(code-8) = mpenter;
-//    *(int**)(code-12) = (void *) V2P(entrypgdir);
+    *(void**)(code-8) = stack + KSTACKSIZE;
+    *(void(**)(void))(code-16) = mpenter;
+    *(uint*)(code-20) = V2P(entrypml4);
 
     lapicstartap(c->apicid, V2P(code));
 

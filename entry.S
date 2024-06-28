@@ -102,7 +102,7 @@ start64:
 .data
 .comm stack, KSTACKSIZE
 
-.p2align 4                                # force 4 byte alignment
+.p2align 4                                # force 16 byte alignment
 gdt64:
   SEG_NULLASM                             # null seg
   SEG64_ASM(STA_X|STA_R, SEG64_CODE)      # code seg

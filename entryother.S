@@ -55,22 +55,39 @@ start32:
   movw    %ax, %fs                # -> FS
   movw    %ax, %gs                # -> GS
 
-  # Turn on page size extension for 4Mbyte pages
+  # Enable physical-address extensions (PAE).
   movl    %cr4, %eax
-  orl     $(CR4_PSE), %eax
+  orl     $(CR4_PAE), %eax
   movl    %eax, %cr4
-  # Use entrypgdir as our initial page table
-  movl    (start-12), %eax
+
+  # Use entrypml4 as our initial page table
+  movl    (start-20), %eax
   movl    %eax, %cr3
-  # Turn on paging.
+
+  # Enable IA-32e mode by setting IA32_EFER.LME = 1.
+  movl    $EFER_MSR, %ecx
+  rdmsr
+  orl     $EFER_MSR_LME, %eax
+  wrmsr
+
+  # Enable paging. This causes the processor to set the IA32_EFER.LMA bit to 1.
   movl    %cr0, %eax
-  orl     $(CR0_PE|CR0_PG|CR0_WP), %eax
+  orl     $CR0_PG, %eax
   movl    %eax, %cr0
 
-  # Switch to the stack allocated by startothers()
-  movl    (start-4), %esp
-  # Call mpenter()
-  call	 *(start-8)
+  # We are now in the 32-bit compatibility submode of IA-32e mode.
+  # To complete the transition to 64-bit submode, we have to load a gdt with the 64-bit flag set
+  # (in the code segment), and then use a far jump to reload %cs and %rip.
+  lgdt    gdt64desc
+  ljmp    $(SEG_KCODE<<3), $(start64)
+
+  .p2align 4
+  .code64 # Tell assembler to generate 64-bit code now.
+  start64:
+    # Switch to the stack allocated by startothers()
+    movq    (start-8), %rsp
+    # Call mpenter()
+    call	 *(start-16)
 
   movw    $0x8a00, %ax
   movw    %ax, %dx
@@ -91,3 +108,12 @@ gdtdesc:
   .word   (gdtdesc - gdt - 1)
   .long   gdt
 
+.p2align 4
+gdt64:
+  SEG_NULLASM
+  SEG64_ASM(STA_X|STA_R, SEG64_CODE)
+  SEG64_ASM(STA_W, SEG64_OTHER)
+
+gdt64desc:
+  .word   (gdt64desc - gdt64 - 1)
+  .quad   gdt64
