@@ -103,6 +103,23 @@ mappages(pml4e_t *pml4, void *va, uint size, uint64 pa, int perm)
   return 0;
 }
 
+// Make sure the ACPI table at address pa is in the page table. 
+// If it is not, add it so it can be accessed.
+// Return the virtual address of the ACPI table referring to the physical address pa.
+void *
+acpitable(uint64 pa)
+{
+  uint64 *va;
+  pte_t *pte;
+
+  va = P2V(pa);
+  pte = walkpgdir(kpml4, va, 1);
+  if (! *pte & PTE_P)
+    *pte = pa | PTE_P;
+  
+  return va;
+}
+
 // There is one page table per process, plus one that's used when
 // a CPU is not running any process (kpgdir). The kernel uses the
 // current process's page table during system calls and interrupts;

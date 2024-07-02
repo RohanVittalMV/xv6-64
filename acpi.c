@@ -122,24 +122,17 @@ int acpiinit(void) {
   struct acpi_rdsp *rdsp;
   struct acpi_rsdt *rsdt;
   struct acpi_madt *madt = 0;
-  uint64 limit = 0xffffffffffffffff - KERNBASE;
 
   rdsp = find_rdsp();
-  if (rdsp->rsdt_addr_phys > limit)
-    goto notmapped;
-  rsdt = P2V((uint64)rdsp->rsdt_addr_phys);
+  if (!rdsp)
+    return -1;
+  rsdt = acpitable((uint64)rdsp->rsdt_addr_phys);
   count = (rsdt->header.length - sizeof(*rsdt)) / 4;
   for (n = 0; n < count; n++) {
-    struct acpi_desc_header *hdr = P2V((uint64)rsdt->entry[n]);
-    if (rsdt->entry[n] > limit)
-      goto notmapped;
+    struct acpi_desc_header *hdr = acpitable((uint64)rsdt->entry[n]);
     if (!memcmp(hdr->signature, SIG_MADT, 4))
       madt = (void*) hdr;
   }
 
   return acpi_config_smp(madt);
-
-notmapped:
-  cprintf("acpi: tables above 0x%x not mapped.\n", limit);
-  return -1;
 }
