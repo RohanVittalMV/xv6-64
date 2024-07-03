@@ -121,14 +121,14 @@ xchg(volatile uint *addr, uint newval)
     uint64 err;
     uint64 rip;
     ushort cs;
-    uint64 padding1 : 24;
+    uint64 padding1 : 48;
     uint64 rflags;
 
     // In x86-64, this SS and RSP are pushed unconditionally. 
     uint64 rsp;
     ushort ss;
-    uint64 padding2 : 24;
-  };
+    uint64 padding2 : 48;
+  } __attribute__((__packed__));
 
   struct segdesc;
 
