@@ -8,7 +8,7 @@
 
 static void startothers(void);
 static void mpmain(void)  __attribute__((noreturn));
-extern pde_t *kpgdir;
+extern pml4e_t *kpml4;
 extern char end[]; // first address after kernel loaded from ELF file
 
 // Bootstrap processor starts running C code here.
@@ -19,7 +19,8 @@ main(void)
 {
   kinit1(end, P2V(4*1024*1024)); // phys page allocator
   kvmalloc();      // kernel page table
-  mpinit();        // detect other processors
+  if (acpiinit())  // detect other processors
+    mpinit();
   lapicinit();     // interrupt controller
   seginit();       // segment descriptors
   picinit();       // disable pic
@@ -34,7 +35,7 @@ main(void)
   startothers();   // start other processors
   kinit2(P2V(4*1024*1024), P2V(PHYSTOP)); // must come after startothers()
   userinit();      // first user process
-  mpmain();        // finish this processor's setup
+  mpmain();
 }
 
 // Other CPUs jump here from entryother.S.
@@ -57,6 +58,8 @@ mpmain(void)
   scheduler();     // start running processes
 }
 
+extern pml4e_t entrypml4[NPML4ENTRIES];
+
 // Start the non-boot (AP) processors.
 static void
 startothers(void)
@@ -77,7 +80,7 @@ startothers(void)
       continue;
 
     // Tell entryother.S what stack to use, where to enter, and what
-    // pgdir to use. We cannot use kpgdir yet, because the AP processor
+    // pml4 to use. We cannot use kpml4 yet, because the AP processor
     // is running in low  memory, so we use entrypml4 for the APs too.
     stack = kalloc();
     *(void**)(code-8) = stack + KSTACKSIZE;
