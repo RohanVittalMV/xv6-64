@@ -73,7 +73,7 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level)
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
 static pte_t *
-walkpgdir(pml4e_t *pml4, const void *va, int alloc)
+walkpml4(pml4e_t *pml4, const void *va, int alloc)
 {
   return walkpglevel(pml4, va, alloc, 4);
 }
@@ -90,7 +90,7 @@ mappages(pml4e_t *pml4, void *va, uint size, uint64 pa, int perm)
   a = (char*)PGROUNDDOWN((uint64)va);
   last = (char*)PGROUNDDOWN(((uint64)va) + size - 1);
   for(;;){
-    if((pte = walkpgdir(pml4, a, 1)) == 0)
+    if((pte = walkpml4(pml4, a, 1)) == 0)
       return -1;
     if(*pte & PTE_P)
       panic("remap");
@@ -113,7 +113,7 @@ acpitable(uint64 pa)
   pte_t *pte;
 
   va = P2V(pa);
-  pte = walkpgdir(kpml4, va, 1);
+  pte = walkpml4(kpml4, va, 1);
   if (! *pte & PTE_P)
     *pte = pa | PTE_P;
   
@@ -121,7 +121,7 @@ acpitable(uint64 pa)
 }
 
 // There is one page table per process, plus one that's used when
-// a CPU is not running any process (kpgdir). The kernel uses the
+// a CPU is not running any process (kpml4). The kernel uses the
 // current process's page table during system calls and interrupts;
 // page protection bits prevent user code from using the kernel's
 // mappings.
@@ -201,8 +201,8 @@ switchuvm(struct proc *p)
     panic("switchuvm: no process");
   if(p->kstack == 0)
     panic("switchuvm: no kstack");
-  if(p->pgdir == 0)
-    panic("switchuvm: no pgdir");
+  if(p->pml4 == 0)
+    panic("switchuvm: no pml4");
 
   pushcli();
   mycpu()->gdt[SEG_TSS] = SEG16(STS_T32A, &mycpu()->ts,
@@ -214,14 +214,14 @@ switchuvm(struct proc *p)
   // forbids I/O instructions (e.g., inb and outb) from user space
   mycpu()->ts.iomb = (ushort) 0xFFFF;
   ltr(SEG_TSS << 3);
-  lcr3(V2P(p->pgdir));  // switch to process's address space
+  lcr3(V2P(p->pml4));  // switch to process's address space
   popcli();
 }
 
-// Load the initcode into address 0 of pgdir.
+// Load the initcode into address 0 of pml4.
 // sz must be less than a page.
 void
-inituvm(pde_t *pgdir, char *init, uint sz)
+inituvm(pml4e_t *pml4, char *init, uint sz)
 {
   char *mem;
 
@@ -229,22 +229,23 @@ inituvm(pde_t *pgdir, char *init, uint sz)
     panic("inituvm: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
+  mappages(pml4, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
   memmove(mem, init, sz);
 }
 
-// Load a program segment into pgdir.  addr must be page-aligned
+// Load a program segment into pml4.  addr must be page-aligned
 // and the pages from addr to addr+sz must already be mapped.
 int
-loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
+loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint sz)
 {
-  uint i, pa, n;
+  uint i, n;
+  uint64 pa;
   pte_t *pte;
 
-  if((uint) addr % PGSIZE != 0)
+  if((uint64) addr % PGSIZE != 0)
     panic("loaduvm: addr must be page aligned");
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpgdir(pgdir, addr+i, 0)) == 0)
+    if((pte = walkpml4(pml4, addr+i, 0)) == 0)
       panic("loaduvm: address should exist");
     pa = PTE_ADDR(*pte);
     if(sz - i < PGSIZE)
@@ -260,10 +261,10 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 int
-allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
+allocuvm(pml4e_t *pml4, uint oldsz, uint newsz)
 {
   char *mem;
-  uint a;
+  uint64 a;
 
   if(newsz >= KERNBASE)
     return 0;
@@ -275,13 +276,13 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     mem = kalloc();
     if(mem == 0){
       cprintf("allocuvm out of memory\n");
-      deallocuvm(pgdir, newsz, oldsz);
+      deallocuvm(pml4, newsz, oldsz);
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+    if(mappages(pml4, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
       cprintf("allocuvm out of memory (2)\n");
-      deallocuvm(pgdir, newsz, oldsz);
+      deallocuvm(pml4, newsz, oldsz);
       kfree(mem);
       return 0;
     }
@@ -304,7 +305,7 @@ deallocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
 
   a = PGROUNDUP(newsz);
   for(; a  < oldsz; a += PGSIZE){
-    pte = walkpgdir(pml4, (char*)a, 0);
+    pte = walkpml4(pml4, (char*)a, 0);
     if(!pte){ // Skip the page table
       if (PDX(a) == 0x1FF){
         a = PGADDR(PML4X(a), PDPTX(a) + 1, 0, 0, 0) - PGSIZE;
@@ -345,11 +346,11 @@ freevm(pml4e_t *pml4)
 // Clear PTE_U on a page. Used to create an inaccessible
 // page beneath the user stack.
 void
-clearpteu(pde_t *pgdir, char *uva)
+clearpteu(pml4e_t *pml4, char *uva)
 {
   pte_t *pte;
 
-  pte = walkpgdir(pgdir, uva, 0);
+  pte = walkpml4(pml4, uva, 0);
   if(pte == 0)
     panic("clearpteu");
   *pte &= ~PTE_U;
@@ -357,18 +358,18 @@ clearpteu(pde_t *pgdir, char *uva)
 
 // Given a parent process's page table, create a copy
 // of it for a child.
-pde_t*
-copyuvm(pde_t *pgdir, uint sz)
+pml4e_t*
+copyuvm(pml4e_t *pml4, uint sz)
 {
   pde_t *d;
   pte_t *pte;
-  uint pa, i, flags;
+  uint64 pa, i, flags;
   char *mem;
 
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+    if((pte = walkpml4(pml4, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
@@ -392,11 +393,11 @@ bad:
 //PAGEBREAK!
 // Map user virtual address to kernel address.
 char*
-uva2ka(pde_t *pgdir, char *uva)
+uva2ka(pml4e_t *pml4, char *uva)
 {
   pte_t *pte;
 
-  pte = walkpgdir(pgdir, uva, 0);
+  pte = walkpml4(pml4, uva, 0);
   if((*pte & PTE_P) == 0)
     return 0;
   if((*pte & PTE_U) == 0)
@@ -404,19 +405,19 @@ uva2ka(pde_t *pgdir, char *uva)
   return (char*)P2V(PTE_ADDR(*pte));
 }
 
-// Copy len bytes from p to user address va in page table pgdir.
-// Most useful when pgdir is not the current page table.
+// Copy len bytes from p to user address va in page table pml4.
+// Most useful when pml4 is not the current page table.
 // uva2ka ensures this only works for PTE_U pages.
 int
-copyout(pde_t *pgdir, uint va, void *p, uint len)
+copyout(pml4e_t *pml4, uint va, void *p, uint len)
 {
   char *buf, *pa0;
-  uint n, va0;
+  uint64 n, va0;
 
   buf = (char*)p;
   while(len > 0){
-    va0 = (uint)PGROUNDDOWN(va);
-    pa0 = uva2ka(pgdir, (char*)va0);
+    va0 = (uint64)PGROUNDDOWN(va);
+    pa0 = uva2ka(pml4, (char*)va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (va - va0);
