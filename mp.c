@@ -98,6 +98,9 @@ mpinit(void)
   struct mpproc *proc;
   struct mpioapic *ioapic;
 
+  if (acpiinit()) 
+    return; // MP initialized using ACPI tables
+
   if((conf = mpconfig(&mp)) == 0)
     panic("Expect to run on an SMP");
   ismp = 1;

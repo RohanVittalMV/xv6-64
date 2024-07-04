@@ -66,9 +66,9 @@ static int acpi_config_smp(struct acpi_madt *madt) {
   uchar *p, *e;
 
   if (!madt)
-    return -1;
+    return 0;
   if (madt->header.length < sizeof(struct acpi_madt))
-    return -1;
+    return 0;
 
   lapic_addr = madt->lapic_addr_phys;
 
@@ -111,12 +111,14 @@ static int acpi_config_smp(struct acpi_madt *madt) {
 
   if (ncpu) {
     lapic = DEV_P2V(((uint64)lapic_addr));
-    return 0;
+    return 1;
   }
 
-  return -1;
+  return 0;
 }
 
+
+// Return a boolean indicating the success of MP initialization using ACPI tables
 int acpiinit(void) {
   unsigned n, count;
   struct acpi_rdsp *rdsp;
@@ -125,7 +127,7 @@ int acpiinit(void) {
 
   rdsp = find_rdsp();
   if (!rdsp)
-    return -1;
+    return 0;
   rsdt = acpitable((uint64)rdsp->rsdt_addr_phys);
   count = (rsdt->header.length - sizeof(*rsdt)) / 4;
   for (n = 0; n < count; n++) {
