@@ -42,10 +42,10 @@ sys_getpid(void)
   return myproc()->pid;
 }
 
-int
+int64
 sys_sbrk(void)
 {
-  int addr;
+  int64 addr;
   int n;
 
   if(argint(0, &n) < 0)
