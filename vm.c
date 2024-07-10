@@ -33,7 +33,7 @@ seginit(void)
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
 static pte_t *
-walkpglevel(uint64 *pgdir, const void *va, int alloc, int level)
+walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, int *failure_level)
 {
   uint64 *entry;
   uint64 *next_pgdir;
@@ -57,8 +57,11 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level)
   if(*entry & PTE_P){
     next_pgdir = (uint64*)P2V(PTE_ADDR(*entry));
   } else {
-    if(!alloc || (next_pgdir = (uint64*)kalloc()) == 0)
+    if(!alloc || (next_pgdir = (uint64*)kalloc()) == 0){
+      if (failure_level)
+        *failure_level = level;
       return 0;
+    }
     // Make sure all those PTE_P bits are zero.
     memset(next_pgdir, 0, PGSIZE);
     // The permissions here are overly generous, but they can
@@ -66,7 +69,7 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level)
     // entries, if necessary.
     *entry = V2P(next_pgdir) | PTE_P | PTE_W | PTE_U;
   }
-  return walkpglevel(next_pgdir, va, alloc, level - 1);
+  return walkpglevel(next_pgdir, va, alloc, level - 1, failure_level);
 }
 
 // Return the address of the PTE in page table pml4
@@ -75,7 +78,18 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level)
 static pte_t *
 walkpml4(pml4e_t *pml4, const void *va, int alloc)
 {
-  return walkpglevel(pml4, va, alloc, 4);
+  return walkpglevel(pml4, va, alloc, 4, (int*)0);
+}
+
+// Return the address of the PTE in page table pml4
+// that corresponds to virtual address va.  If alloc!=0,
+// create any required page table pages. 
+// On failure (return value equals 0), failure_level is set to the level 
+// in which the table was not present.
+static pte_t *
+walkpml4_withinfo(pml4e_t *pml4, const void *va, int alloc, int *failure_level)
+{
+  return walkpglevel(pml4, va, alloc, 4, failure_level);
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -97,7 +111,7 @@ mappages(pml4e_t *pml4, void *va, uint size, uint64 pa, int perm)
     *pte = pa | perm | PTE_P;
     if(a == last)
       break;
-    a += PGSIZE;
+    a = (char*)SIGN_EXTEND_VA(a + PGSIZE); // Virtual addresses must be sign-extended
     pa += PGSIZE;
   }
   return 0;
@@ -113,7 +127,8 @@ acpitable(uint64 pa)
   pte_t *pte;
 
   va = P2V(pa);
-  pte = walkpml4(kpml4, va, 1);
+  if ((pte = walkpml4(kpml4, va, 1)) == 0)
+    return 0;
   if (! *pte & PTE_P)
     *pte = pa | PTE_P;
   
@@ -220,7 +235,7 @@ switchuvm(struct proc *p)
 // Load the initcode into address 0 of pml4.
 // sz must be less than a page.
 void
-inituvm(pml4e_t *pml4, char *init, uint sz)
+inituvm(pml4e_t *pml4, char *init, uint64 sz)
 {
   char *mem;
 
@@ -235,7 +250,7 @@ inituvm(pml4e_t *pml4, char *init, uint sz)
 // Load a program segment into pml4.  addr must be page-aligned
 // and the pages from addr to addr+sz must already be mapped.
 int
-loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint sz)
+loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint64 sz)
 {
   uint i, n;
   uint64 pa;
@@ -243,7 +258,7 @@ loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint sz)
 
   if((uint64) addr % PGSIZE != 0)
     panic("loaduvm: addr must be page aligned");
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = 0; i < sz; i = SIGN_EXTEND_VA(i + PGSIZE)){
     if((pte = walkpml4(pml4, addr+i, 0)) == 0)
       panic("loaduvm: address should exist");
     pa = PTE_ADDR(*pte);
@@ -260,7 +275,7 @@ loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint sz)
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 int
-allocuvm(pml4e_t *pml4, uint oldsz, uint newsz)
+allocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
 {
   char *mem;
   uint64 a;
@@ -271,7 +286,7 @@ allocuvm(pml4e_t *pml4, uint oldsz, uint newsz)
     return oldsz;
 
   a = PGROUNDUP(oldsz);
-  for(; a < newsz; a += PGSIZE){
+  for(; a < newsz; a = SIGN_EXTEND_VA(a + PGSIZE)){
     mem = kalloc();
     if(mem == 0){
       cprintf("allocuvm out of memory\n");
@@ -289,6 +304,30 @@ allocuvm(pml4e_t *pml4, uint oldsz, uint newsz)
   return newsz;
 }
 
+static inline uint64
+skiptables(uint64 va, int walkpml4_failure_level)
+{
+  switch (walkpml4_failure_level)
+  {
+    case 4:
+      if (PML4X(va) == 0x1FF)
+        return va + PGSIZE;
+      va = PGADDR(PML4X(va) + 1, 0, 0, 0, 0);
+      break;
+    case 3:
+      if (PDPTX(va) == 0x1FF)
+        return skiptables(va, walkpml4_failure_level + 1);
+      va = PGADDR(PML4X(va), PDPTX(va) + 1, 0, 0, 0);
+      break;
+    case 2:
+      if (PDX(va) == 0x1FF)
+        return skiptables(va, walkpml4_failure_level + 1);
+      va = PGADDR(PML4X(va), PDPTX(va), PDX(va) + 1, 0, 0);
+      break;
+  }
+  return va;
+}
+
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -298,19 +337,16 @@ deallocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
 {
   pte_t *pte;
   uint64 a, pa;
+  int walkpml4_failure_level;
 
   if(newsz >= oldsz)
     return oldsz;
 
   a = PGROUNDUP(newsz);
-  for(; a  < oldsz; a += PGSIZE){
-    pte = walkpml4(pml4, (char*)a, 0);
+  for(; a  < oldsz; a = SIGN_EXTEND_VA(a + PGSIZE)){
+    pte = walkpml4_withinfo(pml4, (char*)a, 0, &walkpml4_failure_level);
     if(!pte){ // Skip the page table
-      if (PDX(a) == 0x1FF){
-        a = PGADDR(PML4X(a), PDPTX(a) + 1, 0, 0, 0) - PGSIZE;
-      } else {
-        a = PGADDR(PML4X(a), PDPTX(a), PDX(a) + 1, 0, 0) - PGSIZE;
-      }
+      a = skiptables(a, walkpml4_failure_level) - PGSIZE;
     } else if((*pte & PTE_P) != 0){
       pa = PTE_ADDR(*pte);
       if(pa == 0)
@@ -323,23 +359,31 @@ deallocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
-// Free a page table and all the physical memory pages
+// Free page tables
+static void freepgdir(uint64 *pgdir, int level) {
+  if (level <= 1)
+    goto finish;
+
+  for (int i = 0; i < NPTENTRIES; i++) {
+    if ((pgdir[i] & PTE_P)) {
+      uint64 *next_table = (uint64*)P2V(PTE_ADDR(pgdir[i]));
+      freepgdir(next_table, level - 1);
+    }
+  }
+
+finish:
+  kfree((char *)pgdir);
+}
+
+// Free page tables and all the physical memory pages
 // in the user part.
 void
 freevm(pml4e_t *pml4)
 {
-  uint i;
-
   if(pml4 == 0)
     panic("freevm: no pml4");
   deallocuvm(pml4, KERNBASE, 0);
-  for(i = 0; i < NPDENTRIES; i++){
-    if(pml4[i] & PTE_P){
-      char * v = P2V(PTE_ADDR(pml4[i]));
-      kfree(v);
-    }
-  }
-  kfree((char*)pml4);
+  freepgdir(pml4, 4);
 }
 
 // Clear PTE_U on a page. Used to create an inaccessible
@@ -358,7 +402,7 @@ clearpteu(pml4e_t *pml4, char *uva)
 // Given a parent process's page table, create a copy
 // of it for a child.
 pml4e_t*
-copyuvm(pml4e_t *pml4, uint sz)
+copyuvm(pml4e_t *pml4, uint64 sz)
 {
   pde_t *d;
   pte_t *pte;
@@ -367,7 +411,7 @@ copyuvm(pml4e_t *pml4, uint sz)
 
   if((d = setupkvm()) == 0)
     return 0;
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = 0; i < sz; i = SIGN_EXTEND_VA(i + PGSIZE)){
     if((pte = walkpml4(pml4, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
@@ -425,7 +469,7 @@ copyout(pml4e_t *pml4, uint va, void *p, uint len)
     memmove(pa0 + (va - va0), buf, n);
     len -= n;
     buf += n;
-    va = va0 + PGSIZE;
+    va = SIGN_EXTEND_VA(va0 + PGSIZE);
   }
   return 0;
 }
