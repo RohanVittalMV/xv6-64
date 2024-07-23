@@ -12,7 +12,7 @@
 #define CR4_PSE         0x00000010      // Page size extension
 #define CR4_PAE         0x00000020      // Physical Address Extension
 
-// IA32_EFER (Extended Feature Enable Register) MSR (Model-Specific Register)
+// IA32_EFER (Extended Feature Enable Register, Model-Specific Register)
 #define EFER_MSR        0xC0000080
 #define EFER_MSR_LME    0x00000100      // IA-32e Mode Enable
 
@@ -40,7 +40,8 @@ struct segdesc {
     uint lim_19_16 : 4;  // High bits of segment limit
     uint avl : 1;        // Unused (available for software use)
     uint l : 1;          // 64-bit code segment
-    uint db : 1;         // 0 = 16-bit segment, 1 = 32-bit segment, 0 in IA-32e mode
+    uint db : 1;         // 0 = 16-bit segment / IA-32e mode
+                         // 1 = 32-bit segment
     uint g : 1;          // Granularity: limit scaled by 4K when set
     uint base_31_24 : 8; // High bits of segment base address
 } __attribute__((packed));
@@ -82,12 +83,19 @@ struct tssdesc {
 
 // A virtual address 'la' has a six-part structure as follows:
 //
-// +---------16----------+--------9-------+-------9--------+--------9-------+-------9--------+---------12----------+
-// |                     |    Page Map    | Page Directory |                |                |                     |
-// |       Ignored       |     Level 4    |  Pointer Table | Page Directory |   Page Table   | Offset within Page  |
-// |                     |     Index      |     Index      |      Index     |      Index     |                     |
-// +---------------------+----------------+----------------+----------------+----------------+---------------------+
-//                        \-- PML4X(va) -/ \-- PDPTX(va) -/ \--- PDX(va) --/ \--- PTX(va) --/
+// +---------16----------+--------9-------+-------9--------+ 
+// |                     |    Page Map    | Page Directory |
+// |       Ignored       |     Level 4    |  Pointer Table | ...
+// |                     |     Index      |     Index      |
+// +---------------------+----------------+----------------+
+//                        \-- PML4X(va) -/ \-- PDPTX(va) -/ 
+
+//     +--------9-------+-------9--------+---------12----------+
+//     |                |                |                     |
+// ... | Page Directory |   Page Table   | Offset within Page  |
+//     |      Index     |      Index     |                     |
+//     +----------------+----------------+---------------------+
+//      \--- PDX(va) --/ \--- PTX(va) --/
 
 // page map level 4 index
 #define PML4X(va)       (((uint64)(va) >> PML4SHIFT) & 0x1FF)
@@ -168,6 +176,7 @@ struct taskstate {
     ushort rsv4;
     ushort iomb;       // I/O map base address
 } __attribute__((packed));
+//PAGEBREAK!
 
 // Gate descriptors for interrupts and traps
 struct gatedesc {

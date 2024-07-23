@@ -117,8 +117,8 @@ static int acpi_config_smp(struct acpi_madt *madt) {
   return 0;
 }
 
-
-// Return a boolean indicating the success of MP initialization using ACPI tables
+// Return a boolean indicating the success of MP initialization 
+// using ACPI tables
 int acpiinit(void) {
   unsigned n, count;
   struct acpi_rdsp *rdsp;
@@ -142,3 +142,6 @@ int acpiinit(void) {
 
   return acpi_config_smp(madt);
 }
+
+//PAGEBREAK!
+// Blank page.

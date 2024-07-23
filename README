@@ -22,7 +22,6 @@ xv6 borrows code from the following sources:
 The following people have made contributions: Russ Cox (context switching,
 locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
 Clements.
-
 We are also grateful for the bug reports and patches contributed by Silas
 Boyd-Wickizer, Anton Burtsev, Cody Cutler, Mike CAT, Tej Chajed, eyalz800,
 Nelson Elhage, Saar Ettinger, Alice Ferrazzi, Nathaniel Filardo, Peter

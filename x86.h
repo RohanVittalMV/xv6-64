@@ -130,6 +130,7 @@ xchg(volatile uint *addr, uint newval)
     uint64 padding2 : 48;
   } __attribute__((__packed__));
 
+//PAGEBREAK!
   struct segdesc;
 
   static inline void

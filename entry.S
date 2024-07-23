@@ -73,14 +73,16 @@ entry:
   orl     $EFER_MSR_LME, %eax
   wrmsr
 
-  # Enable paging. This causes the processor to set the IA32_EFER.LMA bit to 1.
+  # Enable paging.
+  # This causes the processor to set the IA32_EFER.LMA bit to 1.
   movl    %cr0, %eax
   orl     $CR0_PG, %eax
   movl    %eax, %cr0
 
   # We are now in the 32-bit compatibility submode of IA-32e mode.
-  # To complete the transition to 64-bit submode, we have to load a gdt with the 64-bit flag set
-  # (in the code segment), and then use a far jump to reload %cs and %rip.
+  # To complete the transition to 64-bit submode, we have to load 
+  # a gdt with the 64-bit flag set (in the code segment), and then 
+  # use a far jump to reload %cs and %rip.
   lgdt    (V2P_WO(gdt64desc))
   ljmp    $(SEG_KCODE<<3), $(V2P_WO(start64))
 
@@ -111,3 +113,6 @@ gdt64:
 gdt64desc:
   .word   (gdt64desc - gdt64 - 1)         # sizeof(gdt64) - 1
   .quad   V2P_WO(gdt64)                   # address gdt64
+
+//PAGEBREAK!
+# Blank page.

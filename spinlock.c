@@ -74,7 +74,8 @@ getcallerpcs(uint64 *rbp, uint64 pcs[])
   int i;
 
   for(i = 0; i < 10; i++){
-    if(rbp == 0 || rbp < (uint64*)KERNBASE || rbp == (uint64*)0xffffffffffffffff)
+    if(rbp == 0 || rbp < (uint64*)KERNBASE 
+                || rbp == (uint64*)0xffffffffffffffff)
       break;
     pcs[i] = rbp[1];       // saved %rip
     rbp = (uint64*)rbp[0]; // saved %rbp

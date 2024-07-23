@@ -132,7 +132,7 @@ mpinit(void)
   }
   if(!ismp)
     panic("Didn't find a suitable machine");
-
+//PAGEBREAK!
   if(mp->imcrp){
     // Bochs doesn't support IMCR, so this doesn't run on Bochs.
     // But it would on real hardware.

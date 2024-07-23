@@ -1,5 +1,6 @@
 // References: ACPI Specification 6.4
-// https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html
+// https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/
+// 05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html
 // Copyright (c) 2013 Brian Swetland
 
 // 5.2.5.3 Root System Description Pointer (RSDP) Structure

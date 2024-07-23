@@ -33,7 +33,8 @@ seginit(void)
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
 static pte_t *
-walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, int *failure_level)
+walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, 
+            int *missing)
 {
   uint64 *entry;
   uint64 *next_pgdir;
@@ -58,8 +59,8 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, int *failure_le
     next_pgdir = (uint64*)P2V(PTE_ADDR(*entry));
   } else {
     if(!alloc || (next_pgdir = (uint64*)kalloc()) == 0){
-      if (failure_level)
-        *failure_level = level;
+      if (missing)
+        *missing = level;
       return 0;
     }
     // Make sure all those PTE_P bits are zero.
@@ -69,27 +70,18 @@ walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, int *failure_le
     // entries, if necessary.
     *entry = V2P(next_pgdir) | PTE_P | PTE_W | PTE_U;
   }
-  return walkpglevel(next_pgdir, va, alloc, level - 1, failure_level);
+  return walkpglevel(next_pgdir, va, alloc, level - 1, missing);
 }
 
 // Return the address of the PTE in page table pml4
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
-static pte_t *
-walkpml4(pml4e_t *pml4, const void *va, int alloc)
-{
-  return walkpglevel(pml4, va, alloc, 4, (int*)0);
-}
-
-// Return the address of the PTE in page table pml4
-// that corresponds to virtual address va.  If alloc!=0,
-// create any required page table pages. 
-// On failure (return value equals 0), failure_level is set to the level 
+// On failure (return value equals 0), missing is set to the level 
 // in which the table was not present.
 static pte_t *
-walkpml4_withinfo(pml4e_t *pml4, const void *va, int alloc, int *failure_level)
+walkpml4(pml4e_t *pml4, const void *va, int alloc, int *missing)
 {
-  return walkpglevel(pml4, va, alloc, 4, failure_level);
+  return walkpglevel(pml4, va, alloc, 4, missing);
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -104,7 +96,7 @@ mappages(pml4e_t *pml4, void *va, uint size, uint64 pa, int perm)
   a = (char*)PGROUNDDOWN((uint64)va);
   last = (char*)PGROUNDDOWN(((uint64)va) + size - 1);
   for(;;){
-    if((pte = walkpml4(pml4, a, 1)) == 0)
+    if((pte = walkpml4(pml4, a, 1, 0)) == 0)
       return -1;
     if(*pte & PTE_P)
       panic("remap");
@@ -117,9 +109,9 @@ mappages(pml4e_t *pml4, void *va, uint size, uint64 pa, int perm)
   return 0;
 }
 
-// Make sure the ACPI table at address pa is in the page table. 
+// Make sure the ACPI table at physical address pa is in the page table. 
 // If it is not, add it so it can be accessed.
-// Return the virtual address of the ACPI table referring to the physical address pa.
+// Return the virtual address of the ACPI table referring to pa.
 void *
 acpitable(uint64 pa)
 {
@@ -127,7 +119,7 @@ acpitable(uint64 pa)
   pte_t *pte;
 
   va = P2V(pa);
-  if ((pte = walkpml4(kpml4, va, 1)) == 0)
+  if ((pte = walkpml4(kpml4, va, 1, 0)) == 0)
     return 0;
   if (! *pte & PTE_P)
     *pte = pa | PTE_P;
@@ -250,7 +242,8 @@ inituvm(pml4e_t *pml4, char *init, uint64 sz)
 // Load a program segment into pml4.  addr must be page-aligned
 // and the pages from addr to addr+sz must already be mapped.
 int
-loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint64 sz)
+loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, 
+        uint64 sz)
 {
   uint i, n;
   uint64 pa;
@@ -259,7 +252,7 @@ loaduvm(pml4e_t *pml4, char *addr, struct inode *ip, uint offset, uint64 sz)
   if((uint64) addr % PGSIZE != 0)
     panic("loaduvm: addr must be page aligned");
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpml4(pml4, addr+i, 0)) == 0)
+    if((pte = walkpml4(pml4, addr+i, 0, 0)) == 0)
       panic("loaduvm: address should exist");
     pa = PTE_ADDR(*pte);
     if(sz - i < PGSIZE)
@@ -305,9 +298,9 @@ allocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
 }
 
 static inline uint64
-skiptables(uint64 va, int walkpml4_failure_level)
+skiptables(uint64 va, int walkpml4_missing_level)
 {
-  switch (walkpml4_failure_level)
+  switch (walkpml4_missing_level)
   {
     case 4:
       if (PML4X(va) == 0x1FF)
@@ -316,12 +309,12 @@ skiptables(uint64 va, int walkpml4_failure_level)
       break;
     case 3:
       if (PDPTX(va) == 0x1FF)
-        return skiptables(va, walkpml4_failure_level + 1);
+        return skiptables(va, walkpml4_missing_level + 1);
       va = PGADDR(PML4X(va), PDPTX(va) + 1, 0, 0, 0);
       break;
     case 2:
       if (PDX(va) == 0x1FF)
-        return skiptables(va, walkpml4_failure_level + 1);
+        return skiptables(va, walkpml4_missing_level + 1);
       va = PGADDR(PML4X(va), PDPTX(va), PDX(va) + 1, 0, 0);
       break;
   }
@@ -337,16 +330,16 @@ deallocuvm(pml4e_t *pml4, uint64 oldsz, uint64 newsz)
 {
   pte_t *pte;
   uint64 a, pa;
-  int walkpml4_failure_level;
+  int walkpml4_missing_level;
 
   if(newsz >= oldsz)
     return oldsz;
 
   a = PGROUNDUP(newsz);
   for(; a  < oldsz; a += PGSIZE){
-    pte = walkpml4_withinfo(pml4, (char*)a, 0, &walkpml4_failure_level);
+    pte = walkpml4(pml4, (char*)a, 0, &walkpml4_missing_level);
     if(!pte){ // Skip the page table
-      a = skiptables(a, walkpml4_failure_level) - PGSIZE;
+      a = skiptables(a, walkpml4_missing_level) - PGSIZE;
     } else if((*pte & PTE_P) != 0){
       pa = PTE_ADDR(*pte);
       if(pa == 0)
@@ -393,7 +386,7 @@ clearpteu(pml4e_t *pml4, char *uva)
 {
   pte_t *pte;
 
-  pte = walkpml4(pml4, uva, 0);
+  pte = walkpml4(pml4, uva, 0, 0);
   if(pte == 0)
     panic("clearpteu");
   *pte &= ~PTE_U;
@@ -412,7 +405,7 @@ copyuvm(pml4e_t *pml4, uint64 sz)
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpml4(pml4, (void *) i, 0)) == 0)
+    if((pte = walkpml4(pml4, (void *) i, 0, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
@@ -440,7 +433,7 @@ uva2ka(pml4e_t *pml4, char *uva)
 {
   pte_t *pte;
 
-  pte = walkpml4(pml4, uva, 0);
+  pte = walkpml4(pml4, uva, 0, 0);
   if((*pte & PTE_P) == 0)
     return 0;
   if((*pte & PTE_U) == 0)
@@ -476,8 +469,3 @@ copyout(pml4e_t *pml4, uint va, void *p, uint len)
 
 //PAGEBREAK!
 // Blank page.
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-
