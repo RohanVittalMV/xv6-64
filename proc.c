@@ -198,7 +198,7 @@ fork(void)
   np->parent = curproc;
   *np->tf = *curproc->tf;
 
-  // Clear %eax so that fork returns 0 in the child.
+  // Clear %rax so that fork returns 0 in the child.
   np->tf->rax = 0;
 
   for(i = 0; i < NOFILE; i++)
