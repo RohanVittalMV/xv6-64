@@ -94,102 +94,107 @@ xchg(volatile uint *addr, uint newval)
     return result;
 }
 
-//PAGEBREAK: 36
-#ifdef X86_64
-  // Layout of the trap frame built on the stack by the
-  // hardware and by trapasm.S, and passed to trap().
-  struct trapframe {
-    uint64 rax;
-    uint64 rbx;
-    uint64 rcx;
-    uint64 rdx;
-    uint64 rbp;
-    uint64 rsi;
-    uint64 rdi;
-    uint64 r8;
-    uint64 r9;
-    uint64 r10;
-    uint64 r11;
-    uint64 r12;
-    uint64 r13;
-    uint64 r14;
-    uint64 r15;
-
-    uint64 trapno;
-
-    // below here defined by x86 hardware
-    uint64 err;
-    uint64 rip;
-    ushort cs;
-    uint64 padding1 : 48;
-    uint64 rflags;
-
-    // In x86-64, this SS and RSP are pushed unconditionally. 
-    uint64 rsp;
-    ushort ss;
-    uint64 padding2 : 48;
-  } __attribute__((__packed__));
-
 //PAGEBREAK!
-  struct segdesc;
+#ifdef X86_64
+// Since bootmain.c also includes this file and must not
+// contain x86-64 any code, this section is guarded by this
+// X86_64 define (see Makefile for compilation option).
 
-  static inline void
-  lgdt(struct segdesc *p, int size)
-  {
-    volatile ushort pd[5];
+struct segdesc;
 
-    pd[0] = size-1;
-    pd[1] = (uint64)p;
-    pd[2] = (uint64)p >> 16;
-    pd[3] = (uint64)p >> 32;
-    pd[4] = (uint64)p >> 48;
+static inline void
+lgdt(struct segdesc *p, int size)
+{
+  volatile ushort pd[5];
 
-    asm volatile("lgdt (%0)" : : "r" (pd));
-  }
+  pd[0] = size-1;
+  pd[1] = (uint64)p;
+  pd[2] = (uint64)p >> 16;
+  pd[3] = (uint64)p >> 32;
+  pd[4] = (uint64)p >> 48;
 
-  struct gatedesc;
+  asm volatile("lgdt (%0)" : : "r" (pd));
+}
 
-  static inline void
-  lidt(struct gatedesc *p, int size)
-  {
-    volatile ushort pd[5];
+struct gatedesc;
 
-    pd[0] = size-1;
-    pd[1] = (uint64)p;
-    pd[2] = (uint64)p >> 16;
-    pd[3] = (uint64)p >> 32;
-    pd[4] = (uint64)p >> 48;
+static inline void
+lidt(struct gatedesc *p, int size)
+{
+  volatile ushort pd[5];
 
-    asm volatile("lidt (%0)" : : "r" (pd));
-  }
+  pd[0] = size-1;
+  pd[1] = (uint64)p;
+  pd[2] = (uint64)p >> 16;
+  pd[3] = (uint64)p >> 32;
+  pd[4] = (uint64)p >> 48;
 
-  static inline uint64
-  rcr2(void)
-  {
-    uint64 val;
-    asm volatile("movq %%cr2,%0" : "=r" (val));
-    return val;
-  }
+  asm volatile("lidt (%0)" : : "r" (pd));
+}
 
-  static inline void
-  lcr3(uint64 val)
-  {
-    asm volatile("movq %0,%%cr3" : : "r" (val));
-  }
+static inline uint64
+rcr2(void)
+{
+  uint64 val;
+  asm volatile("movq %%cr2,%0" : "=r" (val));
+  return val;
+}
 
-  static inline uint64
-  readrflags(void)
-  {
-    uint64 rflags;
-    asm volatile("pushfq; popq %0" : "=r" (rflags));
-    return rflags;
-  }
+static inline void
+lcr3(uint64 val)
+{
+  asm volatile("movq %0,%%cr3" : : "r" (val));
+}
 
-  static inline uint64
-  rrbp(void)
-  {
-    uint64 val;
-    asm volatile("movq %%rbp,%0" : "=r" (val));
-    return val;
-  }
+static inline uint64
+readrflags(void)
+{
+  uint64 rflags;
+  asm volatile("pushfq; popq %0" : "=r" (rflags));
+  return rflags;
+}
+
+static inline uint64
+rrbp(void)
+{
+  uint64 val;
+  asm volatile("movq %%rbp,%0" : "=r" (val));
+  return val;
+}
 #endif // X86_64
+
+//PAGEBREAK: 36
+// Layout of the trap frame built on the stack by the
+// hardware and by trapasm.S, and passed to trap().
+struct trapframe {
+  uint64 rax;
+  uint64 rbx;
+  uint64 rcx;
+  uint64 rdx;
+  uint64 rbp;
+  uint64 rsi;
+  uint64 rdi;
+  uint64 r8;
+  uint64 r9;
+  uint64 r10;
+  uint64 r11;
+  uint64 r12;
+  uint64 r13;
+  uint64 r14;
+  uint64 r15;
+
+  uint64 trapno;
+
+  // below here defined by x86 hardware
+  uint64 err;
+  uint64 rip;
+  ushort cs;
+  uint64 padding1 : 48;
+  uint64 rflags;
+
+  // In x86-64, SS and RSP are pushed unconditionally. 
+  uint64 rsp;
+  ushort ss;
+  uint64 padding2 : 48;
+} __attribute__((__packed__));
+

@@ -13,7 +13,7 @@ pad()
 # create formatted (numbered) files
 mkdir -p fmt
 rm -f fmt/*
-cp README fmt
+cp README README.orig fmt
 echo > fmt/blank
 files=`grep -v '^#' runoff.list | awk '{print $1}'`
 n=99
@@ -124,7 +124,7 @@ perl -e '
 		s! +$!!;
 
 		# look for declarations like char* x;
-		if (/^[0-9]+ typedef .* u(int|short|long|char);/) {
+		if (/^[0-9]+ typedef .* u(int|short|long|char)[0-9]*;/) {
 			next;
 		}
 		if (/^[0-9]+ extern/) {
@@ -211,6 +211,7 @@ awk '
 # format the whole thing
 (
 	../pr.pl README
+	../pr.pl README.orig
 	../pr.pl -h "table of contents" toc
 	# pr -t -2 t.defs | ../pr.pl -h "definitions" | pad
 	pr -t -l50 -2 refs | ../pr.pl -h "cross-references" | pad

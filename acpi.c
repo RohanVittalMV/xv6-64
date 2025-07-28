@@ -37,7 +37,9 @@ extern struct cpu cpus[NCPU];
 extern int ncpu;
 extern uchar ioapicid;
 
-static struct acpi_rdsp *scan_rdsp(uint64 base, uint len) {
+static struct acpi_rdsp *
+scan_rdsp(uint64 base, uint len)
+{
   uchar *p;
   for (p = P2V(base); len >= sizeof(struct acpi_rdsp); len -= 4, p += 4) {
     if (memcmp(p, SIG_RDSP, 8) == 0) {
@@ -51,7 +53,9 @@ static struct acpi_rdsp *scan_rdsp(uint64 base, uint len) {
   return (struct acpi_rdsp *) 0;  
 }
 
-static struct acpi_rdsp *find_rdsp(void) {
+static struct acpi_rdsp *
+find_rdsp(void)
+{
   struct acpi_rdsp *rdsp;
   uint64 pa;
   pa = *((ushort*) P2V(0x40E)) << 4; // EBDA
@@ -60,7 +64,8 @@ static struct acpi_rdsp *find_rdsp(void) {
   return scan_rdsp(0xE0000, 0x20000);
 } 
 
-static int acpi_config_smp(struct acpi_madt *madt) {
+static int
+acpi_config_smp(struct acpi_madt *madt) {
   uint32 lapic_addr;
   uint nioapic = 0;
   uchar *p, *e;
@@ -119,7 +124,9 @@ static int acpi_config_smp(struct acpi_madt *madt) {
 
 // Return a boolean indicating the success of MP initialization 
 // using ACPI tables
-int acpiinit(void) {
+int
+acpiinit(void)
+{
   unsigned n, count;
   struct acpi_rdsp *rdsp;
   struct acpi_rsdt *rsdt;
@@ -142,6 +149,3 @@ int acpiinit(void) {
 
   return acpi_config_smp(madt);
 }
-
-//PAGEBREAK!
-// Blank page.
