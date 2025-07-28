@@ -33,7 +33,8 @@ seginit(void)
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
 static pte_t *
-walkpglevel(uint64 *pgdir, const void *va, int alloc, int level, int *missing)
+walkpglevel(uint64 *pgdir, const void *va, int alloc, int level,
+	    int *missing)
 {
   uint64 *entry;
   uint64 *next_pgdir;
