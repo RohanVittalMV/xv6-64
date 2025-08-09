@@ -102,19 +102,25 @@ startothers(void)
 // PTE_PS in a page directory entry enables 1Gbyte pages.
 __attribute__((__aligned__(PGSIZE)))
 pdpte_t identitymap[NPDPTENTRIES] = {
-        // Map VA's [0, 1GB) to PA's [0, 1GB)
-        [0] = (0) | PTE_P | PTE_W | PTE_PS,
+  // Map VA's [0, 1GB) to PA's [0, 1GB)
+  [0] = (0) | PTE_P | PTE_W | PTE_PS,
 };
 
 __attribute__((__aligned__(PGSIZE)))
 pdpte_t kernmap[NPDPTENTRIES] = {
-        // Map VA's [KERNBASE, KERNBASE+1GB) to PA's [0, 1GB)
-        [PDPTX(KERNBASE)] = (0) | PTE_P | PTE_W | PTE_PS,
+  // Map VA's [KERNBASE, KERNBASE+1GB) to PA's [0, 1GB)
+  [PDPTX(KERNBASE)] = (0) | PTE_P | PTE_W | PTE_PS,
 };
 
-// Will be initialized in entry.S
 __attribute__((__aligned__(PGSIZE)))
-pml4e_t entrypml4[NPML4ENTRIES] = {0};
+pml4e_t entrypml4[NPML4ENTRIES] = {
+  // Flags below should be added with "|" and not with "+",
+  // however, "|" seems to complex for the link editor,
+  // so the compiler refuses to compile the code.
+  // The use of "+" is valid since PTE_* are only single bits.
+  [0] = V2P(identitymap) + PTE_P + PTE_W,
+  [PML4X(KERNBASE)] = V2P(kernmap) + PTE_P + PTE_W,
+};
 
 //PAGEBREAK!
 // Blank page.

@@ -49,22 +49,8 @@ entry:
   orl     $(CR4_PAE), %eax
   movl    %eax, %cr4
 
-  # Complete the initialization of the Page Map Level 4 table (PML4) with:
-  #   PML4[0]               = @identitymap  | PTE_P | PTE_W
-  #   PML4[PML4X(KERNBASE)] = @kernmap      | PTE_P | PTE_W
-  movl    $(V2P_WO(entrypml4)), %eax
-
-  movl    $(V2P_WO(identitymap)), %ebx
-  orl     $(PTE_P|PTE_W), %ebx
-  movl    $0, %ecx
-  movl    %ebx, (%eax,%ecx,8) # equivalent to movl %ebx, (%eax)
-
-  movl    $(V2P_WO(kernmap)), %ebx
-  orl     $(PTE_P|PTE_W), %ebx
-  movl    $(PML4X_WO(KERNBASE)), %ecx
-  movl    %ebx, (%eax,%ecx,8)
-
   # Load CR3 with the physical address of PML4.
+  movl    $(V2P_WO(entrypml4)), %eax
   movl    %eax, %cr3
 
   # Enable IA-32e mode by setting IA32_EFER.LME = 1.
@@ -113,6 +99,3 @@ gdt64:
 gdt64desc:
   .word   (gdt64desc - gdt64 - 1)         # sizeof(gdt64) - 1
   .quad   V2P_WO(gdt64)                   # address gdt64
-
-//PAGEBREAK!
-# Blank page.
