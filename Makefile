@@ -293,11 +293,11 @@ tar:
 .PHONY: dist-test dist
 
 .index.html: .index.md
-        pandoc \  
-            --standalone \
-            --metadata='pagetitle:Xv6-64 Source Code' \
-            --variable='keywords:operating system' \
-            --variable='keywords:unix' \
-            --variable='highlighting-css: *{font-family:Arial,sans-serif;}' \
-            -o .index.html \
-            .index.md
+	pandoc \  
+	    --standalone \
+	    --metadata='pagetitle:Xv6-64 Source Code' \
+	    --variable='keywords:operating system' \
+	    --variable='keywords:unix' \
+	    --variable='highlighting-css: *{font-family:Arial,sans-serif;}' \
+	    -o .index.html \
+	    .index.md
