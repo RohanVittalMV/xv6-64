@@ -293,7 +293,7 @@ tar:
 .PHONY: dist-test dist
 
 .index.html: .index.md
-	pandoc \  
+	pandoc \
 	    --standalone \
 	    --metadata='pagetitle:Xv6-64 Source Code' \
 	    --variable='keywords:operating system' \
