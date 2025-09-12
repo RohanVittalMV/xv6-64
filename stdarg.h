@@ -64,9 +64,9 @@ static inline void _va_start(va_list *args)
     //          |-----------------|
     //          |      ARG 7      |
     //          |-----------------|
-    //          |    RETURN PTR   |
+    //          |    RETURN PTR   |
     //          |-----------------|
-    //          |      %rbp       |
+    //          |      %rbp       |
     //          |-----------------| <- %rbp
     asm volatile("leaq 16(%%rbp), %0" : "=r" (args->more_argint));
 
