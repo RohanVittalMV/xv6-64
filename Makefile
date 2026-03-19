@@ -239,7 +239,14 @@ qemu-nox: fs.img xv6.img
 	$(QEMU) -nographic $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl
-	sed "s/localhost:1234/localhost:$(GDBPORT)/" < $^ > $@
+	cp .gdbinit.tmpl .gdbinit
+	echo "echo + target remote localhost:$(GDBPORT)" >> .gdbinit
+	echo "target remote localhost:$(GDBPORT)" >>.gdbinit
+
+launch.json: launch.json.tmpl
+	mkdir -p .vscode
+	cp .gdbinit.tmpl .gdbinit.vscode
+	sed "s/localhost:1234/localhost:$(GDBPORT)/" < $< > .vscode/$@
 
 qemu-gdb: fs.img xv6.img .gdbinit
 	@echo "*** Now run 'gdb'." 1>&2
