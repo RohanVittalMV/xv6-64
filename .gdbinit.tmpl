@@ -10,14 +10,10 @@ define hook-stop
     x/i $pc
   else
     # Translate the segment:offset into a physical address
-    printf "[%4x:%4x] ", $cs, $eip
-    x/i $cs*16+$eip
+    printf "[%4x:%4x] ", $cs, $rip
+    x/i $cs*16+$rip
   end
 end
-
-
-# echo + target remote localhost:1234\n
-# target remote localhost:1234
 
 echo + symbol-file kernel\n
 symbol-file kernel
