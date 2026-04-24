@@ -532,5 +532,150 @@ procdump(void)
 }
 
 int pcreate(char *path, char **argv, int fds[]){
+  struct proc *np;
+  struct proc *curproc = myproc();
+  struct inode *ip = 0;
+  struct elfhdr elf;
+  struct proghdr ph;
+  pml4e_t *pml4 = 0;
+  uint64 sz, sp, uargv;
+  uint64 ustack[MAXARG + 1];
+  char *s, *last;
+  int i, off, argc;
+  uint64 zero = 0;
+
+  if ((np = allocproc()) == 0)
+    return -1;
+
+  if ((pml4 = setupkvm()) == 0)
+    goto bad;
+
+  // open and validate ELF
+  begin_op();
+  if ((ip = namei(path)) == 0) {
+    end_op();
+    goto bad;
+  }
+  ilock(ip);
+
+  if (readi(ip, (char *)&elf, 0, sizeof(elf)) != sizeof(elf))
+    goto bad;
+  if (elf.magic != ELF_MAGIC)
+    goto bad;
+
+  // load each program segment (ignoring ph flags)
+  sz = 0;
+
+  for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
+    if (readi(ip, (char *)&ph, off, sizeof(ph)) != sizeof(ph))
+      goto bad;
+    if (ph.type != ELF_PROG_LOAD)
+      continue;
+    if (ph.memsz < ph.filesz)
+      goto bad;
+    if (ph.vaddr + ph.memsz < ph.vaddr) // overflow check
+      goto bad;
+    if ((sz = allocuvm(pml4, sz, ph.vaddr + ph.memsz)) == 0)
+      goto bad;
+    if (ph.vaddr % PGSIZE != 0)
+      goto bad;
+    if (loaduvm(pml4, (char *)ph.vaddr, ip, ph.off, ph.filesz) < 0)
+      goto bad;
+  }
+
+  iunlockput(ip);
+  end_op();
+  ip = 0;
+
+  // allocate user stack
+
+  sz = PGROUNDUP(sz);
+  if ((sz = allocuvm(pml4, sz, sz + 2 * PGSIZE)) == 0)
+    goto bad;
+  clearpteu(pml4, (char *)(sz - 2 * PGSIZE));
+  sp = sz;
+
+  // push argv onto user stack
+  for(argc = 0; argv[argc]; argc++) {
+    if (argc >= MAXARG)
+      goto bad;
+    sp -= strlen(argv[argc]) + 1;
+    sp &= ~7; // 8-byte align
+    if (copyout(pml4, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
+      goto bad;
+    ustack[argc] = sp;
+  }
+  ustack[argc] = 0;
+
+  // Push the argv pointer array itself onto the stack
+  sp -= (argc + 1) * sizeof(uint64);
+  sp &= ~7;
+  uargv = sp;
+  if (copyout(pml4, sp, ustack, (argc + 1) * sizeof(uint64)) < 0)
+    goto bad;
+
+  // push dummy return address to maintain alignment
+  sp -= 8;
+  if (copyout(pml4, sp, (char *)&zero, 8) < 0)
+    goto bad;
+
+  // set up trap frame
+
+  memset(np->tf, 0, sizeof(*np->tf));
+  np->tf->cs = (SEG_UCODE << 3) | DPL_USER;
+  np->tf->ss = (SEG_UDATA << 3) | DPL_USER;
+  np->tf->rflags = FL_IF;
+  np->tf->rip = elf.entry; // ELF entry point (_start or main)
+  np->tf->rsp = sp;
+  np->tf->rdi = argc;  // first argument: argc
+  np->tf->rsi = uargv; // second argument: argv pointer
+
+  // remap FDs
+  for (i = 0; i < NOFILE; i++) {
+    int parentfd = fds[i];
+    if (parentfd < 0) {
+      np->ofile[i] = 0;
+    } else {
+      if (parentfd >= NOFILE || curproc->ofile[parentfd] == 0)
+        goto bad;
+      np->ofile[i] = filedup(curproc->ofile[parentfd]);
+    }
+  }
+
+  // finish setup of proc struct
+  np->pml4 = pml4;
+  np->sz = sz;
+  np->parent = curproc;
+  np->cwd = idup(curproc->cwd);
+
+  for (last = s = path; *s; s++)
+    if (*s == '/')
+      last = s + 1;
+  safestrcpy(np->name, last, sizeof(np->name));
+
+  acquire(&ptable.lock);
+  np->state = RUNNABLE;
+  release(&ptable.lock);
+
+  return np->pid;
+
+bad:
+  // If we bailed out while the inode was locked, release it
+  if (ip) {
+    iunlockput(ip);
+    end_op();
+  }
+  // Free any page table + user memory we set up
+  if (pml4)
+    freevm(pml4);
+
+  if (np) {
+    for (i = 0; i < NOFILE; i++)
+      if (np->ofile[i])
+        fileclose(np->ofile[i]);
+    kfree(np->kstack);
+    np->kstack = 0;
+    np->state = UNUSED;
+  }
   return -1;
 }

@@ -92,8 +92,10 @@ sys_uptime(void)
 
 uint64 sys_pcreate(void){
   char *path;
-  char **argv;
+  char *argv[MAXARG];
   int fds[NOFILE];
+  int i;
+  uint64 uargv, uarg, ufds;
 
   if(argstr(0, &path) < 0) // arg 0 = path string
     return -1;
@@ -104,6 +106,25 @@ uint64 sys_pcreate(void){
   if(argptr(2, (char**)&fds, NOFILE * sizeof(int)) < 0) // arg 2 = fds array, 16 ints
     return -1;
 
+  // Copy argv strings out of user space (same pattern as sys_exec)
+  memset(argv, 0, sizeof(argv));
+  for (i = 0;; i++) {
+    if (i >= NELEM(argv))
+      return -1;
+    uarg = ((uint64 *)uargv)[i];
+    if (uarg == 0) {
+      argv[i] = 0;
+      break;
+    }
+    if (fetchstr(uarg, &argv[i]) < 0)
+      return -1;
+  }
+
+  // Copy fds array out of user space
+  for (i = 0; i < NOFILE; i++) {
+    fds[i] = ((int *)ufds)[i];
+  }
+
   return pcreate(path, argv, fds);
-  
+}
 }
