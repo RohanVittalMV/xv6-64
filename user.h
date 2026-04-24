@@ -23,6 +23,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int pcreate(char *path, char **argv, int fds[16]);
 
 // ulib.c
 int stat(const char*, struct stat*);

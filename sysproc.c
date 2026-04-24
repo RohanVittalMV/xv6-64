@@ -89,3 +89,21 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 sys_pcreate(void){
+  char *path;
+  char **argv;
+  int fds[NOFILE];
+
+  if(argstr(0, &path) < 0) // arg 0 = path string
+    return -1;
+
+  if(argptr(1, (char**)&argv, sizeof(argv) < 0)) // arg 1 = argv pointer
+    return -1;
+  
+  if(argptr(2, (char**)&fds, NOFILE * sizeof(int)) < 0) // arg 2 = fds array, 16 ints
+    return -1;
+
+  return pcreate(path, argv, fds);
+  
+}

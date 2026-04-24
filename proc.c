@@ -530,3 +530,7 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+int pcreate(char *path, char **argv, int fds[]){
+  return -1;
+}
