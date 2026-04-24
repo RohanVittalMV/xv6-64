@@ -122,33 +122,24 @@ void
 userinit(void)
 {
   struct proc *p;
-  extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-  
   initproc = p;
-  if((p->pml4 = setupkvm()) == 0)
+
+  // Set up kernel page table only — user mappings added in load_init_elf()
+  // after the filesystem is available in forkret()
+  if ((p->pml4 = setupkvm()) == 0)
     panic("userinit: out of memory?");
-  inituvm(p->pml4, _binary_initcode_start, (uint64)_binary_initcode_size);
-  p->sz = PGSIZE;
+
+  // Trapframe zeroed — will be properly configured in load_init_elf()
   memset(p->tf, 0, sizeof(*p->tf));
-  p->tf->cs = (SEG_UCODE << 3) | DPL_USER;
-  p->tf->ss = (SEG_UDATA << 3) | DPL_USER;
-  p->tf->rflags = FL_IF;
-  p->tf->rsp = PGSIZE;
-  p->tf->rip = 0;  // beginning of initcode.S
+  p->sz = PGSIZE;
+  p->cwd = 0; // set in load_init_elf() after FS init
 
-  safestrcpy(p->name, "initcode", sizeof(p->name));
-  p->cwd = namei("/");
+  safestrcpy(p->name, "init", sizeof(p->name));
 
-  // this assignment to p->state lets other cores
-  // run this process. the acquire forces the above
-  // writes to be visible, and the lock is also needed
-  // because the assignment might not be atomic.
   acquire(&ptable.lock);
-
   p->state = RUNNABLE;
-
   release(&ptable.lock);
 }
 
@@ -390,24 +381,110 @@ yield(void)
   release(&ptable.lock);
 }
 
+static void load_init_elf(void) {
+  struct proc *p = myproc(); // this is initproc
+  struct inode *ip;
+  struct elfhdr elf;
+  struct proghdr ph;
+  uint64 sz, sp, uargv;
+  uint64 ustack[2]; // argv[0] pointer + null terminator
+  int i, off;
+  uint64 zero = 0;
+  char *init_path = "/init";
+  char *argv0 = "init";
+
+  cprintf("load_init_elf: loading /init directly from disk\n");
+
+  begin_op();
+  if ((ip = namei(init_path)) == 0)
+    panic("load_init_elf: /init not found");
+  ilock(ip);
+
+  // Validate ELF header
+  if (readi(ip, (char *)&elf, 0, sizeof(elf)) != sizeof(elf))
+    panic("load_init_elf: readi elf header failed");
+  if (elf.magic != ELF_MAGIC)
+    panic("load_init_elf: bad ELF magic");
+
+  // Load each program segment into the existing page table
+  sz = 0;
+  for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
+    if (readi(ip, (char *)&ph, off, sizeof(ph)) != sizeof(ph))
+      panic("load_init_elf: readi ph failed");
+    if (ph.type != ELF_PROG_LOAD)
+      continue;
+    if (ph.memsz < ph.filesz)
+      panic("load_init_elf: memsz < filesz");
+    if (ph.vaddr + ph.memsz < ph.vaddr)
+      panic("load_init_elf: vaddr overflow");
+    if ((sz = allocuvm(p->pml4, sz, ph.vaddr + ph.memsz)) == 0)
+      panic("load_init_elf: allocuvm failed");
+    if (ph.vaddr % PGSIZE != 0)
+      panic("load_init_elf: vaddr not page aligned");
+    if (loaduvm(p->pml4, (char *)ph.vaddr, ip, ph.off, ph.filesz) < 0)
+      panic("load_init_elf: loaduvm failed");
+  }
+  iunlockput(ip);
+  end_op();
+
+  // Allocate user stack: guard page + stack page
+  sz = PGROUNDUP(sz);
+  if ((sz = allocuvm(p->pml4, sz, sz + 2 * PGSIZE)) == 0)
+    panic("load_init_elf: allocuvm stack failed");
+  clearpteu(p->pml4, (char *)(sz - 2 * PGSIZE));
+  sp = sz;
+
+  // Push argv[0] string ("init") onto the stack
+  sp -= strlen(argv0) + 1;
+  sp &= ~7;
+  if (copyout(p->pml4, sp, argv0, strlen(argv0) + 1) < 0)
+    panic("load_init_elf: copyout argv0 failed");
+  ustack[0] = sp;
+  ustack[1] = 0; // null-terminate argv[]
+
+  // Push the argv pointer array
+  sp -= 2 * sizeof(uint64);
+  sp &= ~7;
+  uargv = sp;
+  if (copyout(p->pml4, sp, ustack, 2 * sizeof(uint64)) < 0)
+    panic("load_init_elf: copyout argv array failed");
+
+  // Push fake return address
+  sp -= 8;
+  if (copyout(p->pml4, sp, (char *)&zero, 8) < 0)
+    panic("load_init_elf: copyout return addr failed");
+
+  // Configure trapframe: init.c's main(void) ignores argc/argv,
+  // but we set them correctly anyway
+  memset(p->tf, 0, sizeof(*p->tf));
+  p->tf->cs = (SEG_UCODE << 3) | DPL_USER;
+  p->tf->ss = (SEG_UDATA << 3) | DPL_USER;
+  p->tf->rflags = FL_IF;
+  p->tf->rip = elf.entry; // /init ELF entry point
+  p->tf->rsp = sp;
+  p->tf->rdi = 1;     // argc
+  p->tf->rsi = uargv; // argv
+
+  // Finalize proc fields
+  p->sz = sz;
+  p->cwd = namei("/");
+  safestrcpy(p->name, "init", sizeof(p->name));
+}
+
 // A fork child's very first scheduling by scheduler()
 // will swtch here.  "Return" to user space.
 void
 forkret(void)
 {
   static int first = 1;
-  // Still holding ptable.lock from scheduler.
   release(&ptable.lock);
 
   if (first) {
-    // Some initialization functions must be run in the context
-    // of a regular process (e.g., they call sleep), and thus cannot
-    // be run from main().
     first = 0;
     iinit(ROOTDEV);
     initlog(ROOTDEV);
+    load_init_elf(); // load /init from disk now that FS is initialized
   }
-
   // Return to "caller", actually trapret (see allocproc).
 }
 
