@@ -1,11 +1,12 @@
 #include "types.h"
-#include "x86.h"
-#include "defs.h"
 #include "date.h"
-#include "param.h"
+#include "defs.h"
+#include "elf.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "param.h"
 #include "proc.h"
+#include "x86.h"
 
 uint64
 sys_fork(void)
@@ -95,16 +96,29 @@ uint64 sys_pcreate(void){
   char *argv[MAXARG];
   int fds[NOFILE];
   int i;
-  uint64 uargv, uarg, ufds;
+  uint64 uargv = -1, uarg, ufds = -1;
 
-  if(argstr(0, &path) < 0) // arg 0 = path string
-    return -1;
+  cprintf("sys_pcreate entry");
 
-  if(argptr(1, (char**)&argv, sizeof(argv) < 0)) // arg 1 = argv pointer
+  cprintf("sys_pcreate: entered\n");
+
+  if (argstr(0, &path) < 0) {
+    cprintf("sys_pcreate: argstr failed\n");
     return -1;
-  
-  if(argptr(2, (char**)&fds, NOFILE * sizeof(int)) < 0) // arg 2 = fds array, 16 ints
+  }
+  cprintf("sys_pcreate: path=%s\n", path);
+
+  if (argint64(1, (int64 *)&uargv) < 0) {
+    cprintf("sys_pcreate: argint64 uargv failed\n");
     return -1;
+  }
+  cprintf("sys_pcreate: uargv=%p\n", uargv);
+
+  if (argint64(2, (int64 *)&ufds) < 0) {
+    cprintf("sys_pcreate: argint64 ufds failed\n");
+    return -1;
+  }
+  cprintf("sys_pcreate: ufds=%p\n", ufds);
 
   // Copy argv strings out of user space (same pattern as sys_exec)
   memset(argv, 0, sizeof(argv));
@@ -127,4 +141,4 @@ uint64 sys_pcreate(void){
 
   return pcreate(path, argv, fds);
 }
-}
+

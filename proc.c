@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "elf.h"
 
 struct {
   struct spinlock lock;
@@ -544,27 +545,36 @@ int pcreate(char *path, char **argv, int fds[]){
   int i, off, argc;
   uint64 zero = 0;
 
-  if ((np = allocproc()) == 0)
-    return -1;
+  cprintf("pcreate: enter path=%s\n", path);
 
+  if ((np = allocproc()) == 0){
+    cprintf("pcreate: allocproc failed\n");
+    return -1;
+  }
   if ((pml4 = setupkvm()) == 0)
     goto bad;
 
   // open and validate ELF
+  cprintf("pcreate: begin_op + namei\n");
   begin_op();
   if ((ip = namei(path)) == 0) {
+    cprintf("pcreate: namei failed path=%s\n", path);
     end_op();
     goto bad;
   }
   ilock(ip);
 
-  if (readi(ip, (char *)&elf, 0, sizeof(elf)) != sizeof(elf))
+  if (readi(ip, (char *)&elf, 0, sizeof(elf)) != sizeof(elf)){
+    cprintf("pcreate: readi elf failed\n");
     goto bad;
+  }
   if (elf.magic != ELF_MAGIC)
     goto bad;
 
   // load each program segment (ignoring ph flags)
   sz = 0;
+
+  cprintf("pcreate: load program segments\n");
 
   for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
     if (readi(ip, (char *)&ph, off, sizeof(ph)) != sizeof(ph))
@@ -583,15 +593,19 @@ int pcreate(char *path, char **argv, int fds[]){
       goto bad;
   }
 
+  cprintf("pcreate: program segments loaded\n");
+
   iunlockput(ip);
   end_op();
   ip = 0;
 
   // allocate user stack
-
+  cprintf("pcreate: allocate user stack\n");
   sz = PGROUNDUP(sz);
-  if ((sz = allocuvm(pml4, sz, sz + 2 * PGSIZE)) == 0)
+  if ((sz = allocuvm(pml4, sz, sz + 2 * PGSIZE)) == 0){
+    cprintf("pcreate: allocuvm for stack failed\n");
     goto bad;
+  }
   clearpteu(pml4, (char *)(sz - 2 * PGSIZE));
   sp = sz;
 
@@ -601,8 +615,9 @@ int pcreate(char *path, char **argv, int fds[]){
       goto bad;
     sp -= strlen(argv[argc]) + 1;
     sp &= ~7; // 8-byte align
-    if (copyout(pml4, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
-      goto bad;
+    if (copyout(pml4, sp, argv[argc], strlen(argv[argc]) + 1) < 0){
+      cprintf("pcreate: copyout argv failed\n");
+      goto bad;}
     ustack[argc] = sp;
   }
   ustack[argc] = 0;
@@ -611,9 +626,10 @@ int pcreate(char *path, char **argv, int fds[]){
   sp -= (argc + 1) * sizeof(uint64);
   sp &= ~7;
   uargv = sp;
-  if (copyout(pml4, sp, ustack, (argc + 1) * sizeof(uint64)) < 0)
+  if (copyout(pml4, sp, ustack, (argc + 1) * sizeof(uint64)) < 0){
+    cprintf("pcreate: copyout argv array failed\n");
     goto bad;
-
+  }
   // push dummy return address to maintain alignment
   sp -= 8;
   if (copyout(pml4, sp, (char *)&zero, 8) < 0)
@@ -630,14 +646,18 @@ int pcreate(char *path, char **argv, int fds[]){
   np->tf->rdi = argc;  // first argument: argc
   np->tf->rsi = uargv; // second argument: argv pointer
 
+  cprintf("pcreate: trap frame set up with rip=%p rsp=%p argc=%d argv=%p\n", np->tf->rip, np->tf->rsp, argc, uargv);
+
   // remap FDs
   for (i = 0; i < NOFILE; i++) {
     int parentfd = fds[i];
     if (parentfd < 0) {
       np->ofile[i] = 0;
     } else {
-      if (parentfd >= NOFILE || curproc->ofile[parentfd] == 0)
+      if (parentfd >= NOFILE || curproc->ofile[parentfd] == 0){
+        cprintf("pcreate: invalid parent fd %d\n", parentfd);
         goto bad;
+      }
       np->ofile[i] = filedup(curproc->ofile[parentfd]);
     }
   }
@@ -648,11 +668,14 @@ int pcreate(char *path, char **argv, int fds[]){
   np->parent = curproc;
   np->cwd = idup(curproc->cwd);
 
+  cprintf("pcreate: proc struct set up, name=%s\n", path);
+
   for (last = s = path; *s; s++)
     if (*s == '/')
       last = s + 1;
   safestrcpy(np->name, last, sizeof(np->name));
 
+  cprintf("pcreate: name set to %s\n", np->name);
   acquire(&ptable.lock);
   np->state = RUNNABLE;
   release(&ptable.lock);
