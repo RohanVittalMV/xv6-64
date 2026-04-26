@@ -380,23 +380,54 @@ bmap(struct inode *ip, uint bn)
       ip->addrs[bn] = addr = balloc(ip->dev);
     return addr;
   }
-  bn -= NDIRECT;
+  // bn -= NDIRECT;
 
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0)
-      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+  // if(bn < NINDIRECT){
+  //   // Load indirect block, allocating if necessary.
+  //   if((addr = ip->addrs[NDIRECT]) == 0)
+  //     ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+  //   bp = bread(ip->dev, addr);
+  //   a = (uint*)bp->data;
+  //   if((addr = a[bn]) == 0){
+  //     a[bn] = addr = balloc(ip->dev);
+  //     log_write(bp);
+  //   }
+  //   brelse(bp);
+  //   return addr;
+  // }
+
+  // panic("bmap: out of range");
+
+  bn = bn - NDIRECT + 1;
+
+  // Allocate head of list if needed
+  if ((addr = ip->addrs[NDIRECT]) == 0)
+    ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+
+  for (;;) {
     bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
-      a[bn] = addr = balloc(ip->dev);
+    a = (uint *)bp->data;
+
+    if (bn < NINDIRECT) {
+      // bn falls within this node's data slots [1..127]
+      if (a[bn] == 0) {
+        a[bn] = balloc(ip->dev);
+        log_write(bp);
+      }
+      addr = a[bn];
+      brelse(bp);
+      return addr;
+    }
+
+    // bn is beyond this node — follow (or allocate) the next node
+    if (a[0] == 0) {
+      a[0] = balloc(ip->dev);
       log_write(bp);
     }
+    addr = a[0];
     brelse(bp);
-    return addr;
+    bn -= 127; // each node provides 127 data slots (indices 1..127)
   }
-
-  panic("bmap: out of range");
 }
 
 // Truncate inode (discard contents).
